@@ -368,8 +368,8 @@
         return;
       }
 
-      const promptText = makePromptLines(missed).join('
-');
+      const promptText = makePromptLines(missed).join('\n');
+      
       followUp.innerHTML = `
         <div class="helpbox">
           <strong>NotebookLM follow-up</strong><br>
