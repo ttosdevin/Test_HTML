@@ -57,10 +57,16 @@
       background: linear-gradient(180deg, rgba(56, 189, 248, 0.08), transparent);
     }
 
-    .card-head h2 { margin: 0; font-size: 1.1rem; }
-    .card-body { padding: 18px; }
+    .card-head h2 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
 
-    .field, .question {
+    .card-body {
+      padding: 18px;
+    }
+
+    .field {
       margin-bottom: 16px;
       padding: 14px;
       border-radius: 14px;
@@ -90,9 +96,23 @@
       box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
     }
 
-    .question h3 { margin: 0 0 12px; font-size: 1.02rem; }
+    .question {
+      padding: 14px;
+      border-radius: 14px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
 
-    .choices { display: grid; gap: 10px; }
+    .question h3 {
+      margin: 0 0 12px;
+      font-size: 1.02rem;
+    }
+
+    .choices {
+      display: grid;
+      gap: 10px;
+    }
 
     label.choice {
       display: flex;
@@ -127,7 +147,7 @@
       margin-top: 16px;
     }
 
-    button {
+    button, .link-btn {
       border: 0;
       border-radius: 12px;
       padding: 12px 16px;
@@ -136,9 +156,13 @@
       color: white;
       background: var(--accent);
       min-height: 44px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    button.secondary {
+    button.secondary, .link-btn.secondary {
       background: #1f2937;
       border: 1px solid var(--border);
     }
@@ -156,19 +180,64 @@
 
     .results.good { border-color: rgba(34, 197, 94, 0.55); }
     .results.bad { border-color: rgba(239, 68, 68, 0.55); }
-    .demo-note { color: var(--muted); font-size: 0.92rem; margin-top: 10px; }
+
+    .demo-note {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin-top: 10px;
+    }
+
+    .helpbox {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 14px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      line-height: 1.55;
+    }
+
+    .helpbox textarea {
+      width: 100%;
+      margin-top: 10px;
+      min-height: 130px;
+      resize: vertical;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #111827;
+      color: var(--text);
+      font: inherit;
+    }
+
+    .pill {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      font-weight: 700;
+    }
+
+    .link-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
     .hidden { display: none; }
 
     @media (max-width: 640px) {
       .wrap { padding: 14px; }
-      button { width: 100%; }
+      button, .link-btn { width: 100%; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Arithmetic Quiz Demo</h1>
-    <p class="lead">Publish this page on GitHub Pages, then use the Google Apps Script web app to save results in a Sheet.</p>
+    <p class="lead">Two multiple-choice arithmetic questions with a Google Sheet submission and a NotebookLM follow-up prompt for missed question numbers.</p>
 
     <div class="card">
       <div class="card-head">
@@ -178,7 +247,7 @@
         <form id="quizForm">
           <div class="field">
             <label for="studentName">Student name</label>
-            <input type="text" id="studentName" name="studentName" placeholder="Enter your name" autocomplete="name" />
+            <input type="text" id="studentName" name="studentName" placeholder="Enter your name" />
           </div>
 
           <div class="question">
@@ -208,103 +277,134 @@
         </form>
 
         <div class="results" id="results">Your score will appear here.</div>
+        <div id="followUp"></div>
         <div class="demo-note">Correct answers: 7 + 5 = 12, and 9 - 4 = 5.</div>
       </div>
     </div>
   </div>
 
-  <iframe name="hiddenTarget" id="hiddenTarget" class="hidden" title="hidden submit target"></iframe>
+  <iframe name="hiddenTarget" class="hidden" title="hidden submit target"></iframe>
 
   <script>
-    // Google Apps Script web app URL (must be deployed as a Web app with access set to Anyone)
     const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzp0L2At4bgjqouv4q07e-aRZI8ILVGCjt7NzFnMu2_WZ5EDsbGKTj30Pl7GbBoNVxJrw/exec';
+    const NOTEBOOKLM_URL = 'https://notebooklm.google.com/notebook/903fb2fa-88af-4132-baea-43c615e082d2';
+
+    const answers = {
+      q1: '12',
+      q2: '5'
+    };
 
     const quizForm = document.getElementById('quizForm');
     const results = document.getElementById('results');
+    const followUp = document.getElementById('followUp');
     const resetBtn = document.getElementById('resetBtn');
     const studentName = document.getElementById('studentName');
 
-    const answers = { q1: '12', q2: '5' };
+    function sendToSheet(payload) {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = WEB_APP_URL;
+      form.target = 'hiddenTarget';
+      form.className = 'hidden';
 
-    function scoreQuiz(formData) {
-      const q1 = formData.get('q1');
-      const q2 = formData.get('q2');
-      let score = 0;
-      const missed = [];
+      Object.entries(payload).forEach(([key, value]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = String(value);
+        form.appendChild(input);
+      });
 
-      if (q1 === answers.q1) score++; else missed.push('Question 1');
-      if (q2 === answers.q2) score++; else missed.push('Question 2');
-
-      return { score, total: 2, missed };
+      document.body.appendChild(form);
+      form.submit();
+      setTimeout(() => form.remove(), 1000);
     }
 
-    function sendResultViaForm(payload) {
-      return new Promise((resolve) => {
-        const sender = document.createElement('form');
-        sender.method = 'POST';
-        sender.action = WEB_APP_URL;
-        sender.target = 'hiddenTarget';
-        sender.style.display = 'none';
-
-        Object.entries(payload).forEach(([key, value]) => {
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = key;
-          input.value = String(value);
-          sender.appendChild(input);
-        });
-
-        document.body.appendChild(sender);
-        sender.submit();
-
-        // Give the browser a moment to send the POST before cleaning up.
-        setTimeout(() => {
-          sender.remove();
-          resolve();
-        }, 1200);
+    function makePromptLines(missed) {
+      return missed.map((item) => {
+        return `Question ${item.number} for Arithmetic Quiz Demo was answered incorrectly. Ask questions to prompt the correct answer. Student answer: ${item.studentAnswer}. Correct answer: ${item.correctAnswer}.`;
       });
     }
 
-    quizForm.addEventListener('submit', async (e) => {
+    quizForm.addEventListener('submit', (e) => {
       e.preventDefault();
 
-      const formData = new FormData(quizForm);
+      const data = new FormData(quizForm);
       const name = (studentName.value || '').trim() || 'Unnamed student';
-      const { score, total, missed } = scoreQuiz(formData);
+      const q1 = data.get('q1');
+      const q2 = data.get('q2');
+      const missed = [];
+      let score = 0;
+
+      if (q1 === answers.q1) score++; else missed.push({ number: 1, studentAnswer: q1 || 'No answer', correctAnswer: '12' });
+      if (q2 === answers.q2) score++; else missed.push({ number: 2, studentAnswer: q2 || 'No answer', correctAnswer: '5' });
 
       const payload = {
         name,
         score,
-        total,
-        percent: Math.round((score / total) * 100),
-        q1: formData.get('q1') || '',
-        q2: formData.get('q2') || '',
+        total: 2,
+        percent: Math.round((score / 2) * 100),
+        q1: q1 || '',
+        q2: q2 || '',
         submittedAt: new Date().toISOString()
       };
 
-      results.className = 'results';
-      results.textContent = `Submitting...
-${name} scored ${score}/${total}.`;
+      sendToSheet(payload);
 
-      try {
-        await sendResultViaForm(payload);
-        results.className = 'results ' + (score === total ? 'good' : score === 0 ? 'bad' : '');
-        results.textContent = `Sent to Google Sheet.
-${name} scored ${score}/${total}.
-${missed.length ? 'Review: ' + missed.join(', ') + '.' : 'Perfect score!'}`;
-      } catch (err) {
-        results.className = 'results bad';
-        results.textContent = `Score calculated, but the save request failed.
-${name} scored ${score}/${total}.`;
+      results.className = 'results ' + (score === 2 ? 'good' : score === 0 ? 'bad' : '');
+      results.innerHTML = `${name} scored <strong>${score}/2</strong>. Sent to Google Sheet.`;
+
+      followUp.innerHTML = '';
+      if (!missed.length) {
+        followUp.innerHTML = `
+          <div class="helpbox">
+            <strong>NotebookLM follow-up</strong><br>
+            Perfect score — no follow-up prompt needed.
+            <div class="link-row">
+              <a class="link-btn" href="${NOTEBOOKLM_URL}" target="_blank" rel="noopener">Open NotebookLM</a>
+            </div>
+          </div>
+        `;
+        return;
       }
+
+      const promptText = makePromptLines(missed).join('
+');
+      followUp.innerHTML = `
+        <div class="helpbox">
+          <strong>NotebookLM follow-up</strong><br>
+          Open the notebook, then paste the prompt below.
+          <div class="link-row">
+            <a class="link-btn" href="${NOTEBOOKLM_URL}" target="_blank" rel="noopener">Open NotebookLM</a>
+            <button type="button" class="secondary" id="copyPromptBtn">Copy prompt</button>
+          </div>
+          <textarea id="promptBox" readonly>${promptText}</textarea>
+          <div class="pill">Missed questions: ${missed.map(m => m.number).join(', ')}</div>
+        </div>
+      `;
+
+      document.getElementById('copyPromptBtn').addEventListener('click', async () => {
+        const box = document.getElementById('promptBox');
+        try {
+          await navigator.clipboard.writeText(box.value);
+          const btn = document.getElementById('copyPromptBtn');
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = 'Copy prompt'; }, 1200);
+        } catch (err) {
+          box.select();
+          document.execCommand('copy');
+        }
+      });
     });
 
     resetBtn.addEventListener('click', () => {
       quizForm.reset();
       results.className = 'results';
       results.textContent = 'Your score will appear here.';
+      followUp.innerHTML = '';
       studentName.focus();
     });
   </script>
 </body>
 </html>
+
